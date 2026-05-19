@@ -52,6 +52,12 @@ def _get_youtube():
     return fetch_videos()
 
 
+@cached("govt", 900)
+def _get_govt():
+    from modules.kpk_govt import fetch_govt_news
+    return fetch_govt_news()
+
+
 @cached("newspapers", 900)
 def _get_newspapers():
     from modules.newspapers import fetch_articles
@@ -102,15 +108,26 @@ def api_social():
     return jsonify({"status": "ok", "data": _get_social()})
 
 
+@app.route("/api/govt")
+def api_govt():
+    return jsonify({"status": "ok", "data": _get_govt()})
+
+
 @app.route("/api/all")
 def api_all():
     news = _get_news()
     newspapers = _get_newspapers()
     social = _get_social()
-    combined = news + newspapers + social
-    # sort by published_at descending
+    govt = _get_govt()
+    combined = news + newspapers + social + govt
     combined.sort(key=lambda x: x.get("published_at", ""), reverse=True)
-    return jsonify({"status": "ok", "data": combined, "count": len(combined)})
+    # Deduplicate by title
+    seen, unique = set(), []
+    for a in combined:
+        key = (a.get("title", "")[:60]).lower()
+        if key not in seen:
+            seen.add(key); unique.append(a)
+    return jsonify({"status": "ok", "data": unique, "count": len(unique)})
 
 
 @app.route("/api/breaking")

@@ -86,6 +86,7 @@
     <button class="tab" data-tab="youtube" onclick="switchTab('youtube', this)">▶️ YouTube</button>
     <button class="tab" data-tab="trends" onclick="switchTab('trends', this)">📈 Trends</button>
     <button class="tab" data-tab="social" onclick="switchTab('social', this)">💬 Social Media</button>
+    <button class="tab" data-tab="govt" onclick="switchTab('govt', this)">🏛️ KPK Govt</button>
     <button class="tab" data-tab="bookmarks" onclick="switchTab('bookmarks', this)">🔖 Bookmarks</button>
   </nav>
 
@@ -145,6 +146,25 @@
         <div class="loading-spinner hidden" id="spinner-social"></div>
       </div>
       <div id="social-grid" class="card-grid"></div>
+    </div>
+
+    <!-- KPK Govt Tab -->
+    <div id="tab-govt" class="tab-content hidden">
+      <div class="section-header">
+        <h2>KPK Government Departments <span id="govt-count" class="count-badge">—</span></h2>
+        <div class="loading-spinner hidden" id="spinner-govt"></div>
+      </div>
+      <div class="dept-legend">
+        <span class="dept-pill">🚨 PDMA KPK</span>
+        <span class="dept-pill">👮 KPK Police</span>
+        <span class="dept-pill">🏥 KPK Health</span>
+        <span class="dept-pill">🎓 KPK Education</span>
+        <span class="dept-pill">💻 KPITB</span>
+        <span class="dept-pill">🪖 ISPR</span>
+        <span class="dept-pill">🏗️ PDA</span>
+        <span class="dept-pill">🌾 KPK Agriculture</span>
+      </div>
+      <div id="govt-grid" class="card-grid" style="margin-top:16px;"></div>
     </div>
 
     <!-- Bookmarks Tab -->
