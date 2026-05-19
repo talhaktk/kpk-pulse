@@ -1,78 +1,80 @@
 """
-Social Media module — Twitter/X, Facebook, Instagram, Reddit.
-Uses RSSHub (free public bridge) which converts all major platforms to RSS.
-No API keys required.
+Social Media — Twitter/X, Facebook, Instagram via RSSHub.
+Only official government, verified politician, and KPK media accounts.
+No Reddit. No random people.
 """
 import feedparser
 import re
 from datetime import datetime
 
-KPK_KEYWORDS = [
+# Must contain at least one KPK keyword
+KPK_INCLUDE = [
     "kpk", "khyber pakhtunkhwa", "peshawar", "nowshera", "mardan",
-    "swat", "abbottabad", "khyber", "pdma", "waziristan", "pti kpk",
-    "cm kpk", "kp government", "ispr", "bajaur", "chitral", "dir",
-    "kohat", "bannu", "buner", "shangla", "dera ismail khan",
+    "swat", "abbottabad", "khyber", "pdma", "waziristan", "cm kpk",
+    "kpk government", "kpk police", "chitral", "dir", "kohat",
+    "bannu", "buner", "shangla", "dera ismail khan", "bajaur",
+    "mohmand", "kurram", "lakki", "hangu", "kpitb", "brt peshawar",
+    "ispr kpk", "north waziristan", "south waziristan",
 ]
 
-RSSHUB_INSTANCES = [
+# Exclude if ONLY about these provinces with NO KPK mention
+OTHER_PROVINCE = [
+    "karachi", "lahore", "sindh", "balochistan", "punjab",
+    "quetta", "multan", "faisalabad", "hyderabad", "gwadar",
+    "sukkur", "larkana", "nawabshah",
+]
+
+# RSSHub instances (converts social platforms to RSS — no API key)
+RSSHUB = [
     "https://rsshub.app",
     "https://rsshub.rssforever.com",
     "https://hub.slarba.com",
 ]
 
-# ── Twitter/X Accounts ────────────────────────────────────────────────────────
+# ── TWITTER/X: Verified official & politician accounts only ──────────────────
+# (is_kpk_official=True means all their posts are KPK-relevant, skip filter)
 TWITTER_ACCOUNTS = [
-    # KPK Government
-    ("CMKPKOfficial",   True),   # (username, is_kpk_specific — skip keyword filter)
-    ("KPPolice",        True),
-    ("PDMAKPK",         True),
-    ("ESEDKPKOfficial", True),
-    ("KPITBoard",       True),
-    ("OfficialDGISPR",  True),
-    # KPK Media
+    # KPK Government — official verified
+    ("CMKPKOfficial",   True),   # Chief Minister KPK
+    ("KPPolice",        True),   # KPK Police official
+    ("PDMAKPK",         True),   # Disaster Management KPK
+    ("ESEDKPKOfficial", True),   # KPK Education
+    ("KPITBoard",       True),   # KPITB
+    ("OfficialDGISPR",  True),   # Military / ISPR
+    # Top KPK Politicians — verified accounts
+    ("AliAminKhan",     False),  # CM KPK Ali Amin Gandapur
+    ("ShehryarAfridi",  False),  # Federal Minister / KPK Senator
+    ("PTIofficial",     False),  # PTI party official
+    ("ImranKhanPTI",    False),  # Imran Khan
+    ("Asad_Umar",       False),  # PTI leader
+    ("OmarAyubKhan",    False),  # Speaker NA / KPK politician
+    # KPK Media — verified channels
     ("KhyberNews",      True),
     ("AVTKhyber",       True),
     ("MashriqNews",     True),
-    # Politicians
-    ("PTIofficial",     False),
-    ("AliAminKhan",     False),
-    ("Asad_Umar",       False),
-    ("ImranKhanPTI",    False),
-    ("ShehryarAfridi",  True),
 ]
 
-# ── Facebook Pages ────────────────────────────────────────────────────────────
-# RSSHub route: /facebook/page/{page_name or ID}
+# ── FACEBOOK: Official verified pages only ───────────────────────────────────
 FACEBOOK_PAGES = [
-    ("KhyberNews",          True),
-    ("AVTKhyber",           True),
-    ("GeoNewsUrdu",         False),
-    ("arynewsofficial",     False),
-    ("insaf.pk",            False),    # PTI
     ("CMKPKOfficial",       True),
-    ("pdmakpk",             True),
     ("KPKPoliceOfficial",   True),
-    ("mashriqtv",           True),
-    ("DunyaNews",           False),
+    ("pdmakpk",             True),
+    ("KhyberNews",          True),
+    ("AVTKhyberOfficial",   True),
+    ("MashriqOfficial",     True),
+    ("insaf.pk",            False),   # PTI
+    ("ShehryarAfridiOfficial", False),
 ]
 
-# ── Instagram Accounts ────────────────────────────────────────────────────────
-# RSSHub route: /picnob/user/{username}  (picnob is a public Instagram viewer)
+# ── INSTAGRAM: Official verified channels only ───────────────────────────────
 INSTAGRAM_ACCOUNTS = [
     ("khybernewstv",    True),
-    ("arynewstv",       False),
-    ("geonews",         False),
-    ("ptv_news",        False),
+    ("avtkhyber",       True),
+    ("ptiofficialpage", False),
 ]
 
-# ── Reddit Feeds ──────────────────────────────────────────────────────────────
-REDDIT_FEEDS = {
-    "r/pakistan (KPK)":       "https://www.reddit.com/r/pakistan/search.rss?q=KPK+OR+Peshawar+OR+Waziristan&sort=new&limit=20",
-    "r/PakistanPolitics":     "https://www.reddit.com/r/PakistanPolitics/.rss?limit=20",
-}
-
-# ── Nitter Fallback ───────────────────────────────────────────────────────────
-NITTER_INSTANCES = [
+# Nitter fallback for Twitter
+NITTER = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
     "https://nitter.cz",
@@ -81,159 +83,137 @@ NITTER_INSTANCES = [
 
 def fetch_social_posts():
     posts = []
+    posts.extend(_twitter())
+    posts.extend(_facebook())
+    posts.extend(_instagram())
 
-    # Priority 1: RSSHub (Twitter + Facebook + Instagram)
-    posts.extend(_fetch_twitter_rsshub())
-    posts.extend(_fetch_facebook_rsshub())
-    posts.extend(_fetch_instagram_rsshub())
+    # Nitter fallback if Twitter via RSSHub got nothing
+    if not any(p["platform"] == "twitter" for p in posts):
+        posts.extend(_nitter_fallback())
 
-    # Priority 2: Reddit (always reliable, no auth)
-    posts.extend(_fetch_reddit())
-
-    # Priority 3: Nitter fallback for Twitter if RSSHub failed
-    if sum(1 for p in posts if p.get("platform") == "twitter") < 3:
-        posts.extend(_fetch_nitter())
-
-    # Deduplicate + sort
+    # Deduplicate + sort newest first
     seen, unique = set(), []
     for p in posts:
-        key = (p.get("title", "")[:60]).lower()
-        if key not in seen and key:
-            seen.add(key); unique.append(p)
-
+        key = (p.get("title", "")[:70]).lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(p)
     unique.sort(key=lambda x: x.get("published_at", ""), reverse=True)
-    print(f"[social_media] Total: {len(unique)} posts")
-    return unique if unique else _mock_posts()
+    print(f"[social_media] {len(unique)} posts total")
+    return unique or _mock_posts()
 
 
-# ── Fetchers ──────────────────────────────────────────────────────────────────
-
-def _fetch_twitter_rsshub():
-    posts = []
-    for instance in RSSHUB_INSTANCES:
-        instance_posts = []
+def _twitter():
+    for instance in RSSHUB:
+        batch = []
         try:
-            for username, is_kpk in TWITTER_ACCOUNTS:
+            for username, is_official in TWITTER_ACCOUNTS:
                 feed = feedparser.parse(f"{instance}/twitter/user/{username}")
                 if not feed.entries:
                     continue
                 for entry in feed.entries[:6]:
                     text = f"{entry.get('title','')} {entry.get('summary','')}".lower()
-                    if is_kpk or any(kw in text for kw in KPK_KEYWORDS):
-                        instance_posts.append(_make_post(entry, f"@{username}", "twitter"))
-            if instance_posts:
-                print(f"[social_media] Twitter via {instance}: {len(instance_posts)} posts")
-                return instance_posts
+                    if is_official or _is_kpk(text):
+                        batch.append(_post(entry, f"𝕏 @{username}", "twitter"))
+            if batch:
+                print(f"[social_media] Twitter via {instance}: {len(batch)}")
+                return batch
         except Exception as e:
-            print(f"[social_media] RSSHub Twitter {instance}: {e}")
-    return posts
+            print(f"[social_media] Twitter RSSHub {instance}: {e}")
+    return []
 
 
-def _fetch_facebook_rsshub():
-    posts = []
-    for instance in RSSHUB_INSTANCES:
-        instance_posts = []
+def _facebook():
+    for instance in RSSHUB:
+        batch = []
         try:
-            for page, is_kpk in FACEBOOK_PAGES:
+            for page, is_official in FACEBOOK_PAGES:
                 feed = feedparser.parse(f"{instance}/facebook/page/{page}")
                 if not feed.entries:
                     continue
                 for entry in feed.entries[:5]:
                     text = f"{entry.get('title','')} {entry.get('summary','')}".lower()
-                    if is_kpk or any(kw in text for kw in KPK_KEYWORDS):
-                        instance_posts.append(_make_post(entry, f"fb/{page}", "facebook"))
-            if instance_posts:
-                print(f"[social_media] Facebook via {instance}: {len(instance_posts)} posts")
-                return instance_posts
+                    if is_official or _is_kpk(text):
+                        batch.append(_post(entry, f"📘 {page}", "facebook"))
+            if batch:
+                print(f"[social_media] Facebook via {instance}: {len(batch)}")
+                return batch
         except Exception as e:
-            print(f"[social_media] RSSHub Facebook {instance}: {e}")
-        break  # try only first instance for FB to save time
-    return posts
+            print(f"[social_media] Facebook RSSHub {instance}: {e}")
+        break  # only try first instance for FB
+    return []
 
 
-def _fetch_instagram_rsshub():
-    posts = []
-    for instance in RSSHUB_INSTANCES:
-        instance_posts = []
+def _instagram():
+    for instance in RSSHUB:
+        batch = []
         try:
-            for username, is_kpk in INSTAGRAM_ACCOUNTS:
+            for username, is_official in INSTAGRAM_ACCOUNTS:
                 feed = feedparser.parse(f"{instance}/picnob/user/{username}")
                 if not feed.entries:
                     continue
                 for entry in feed.entries[:4]:
                     text = f"{entry.get('title','')} {entry.get('summary','')}".lower()
-                    if is_kpk or any(kw in text for kw in KPK_KEYWORDS):
-                        instance_posts.append(_make_post(entry, f"@{username}", "instagram"))
-            if instance_posts:
-                print(f"[social_media] Instagram via {instance}: {len(instance_posts)} posts")
-                return instance_posts
+                    if is_official or _is_kpk(text):
+                        batch.append(_post(entry, f"📸 @{username}", "instagram"))
+            if batch:
+                print(f"[social_media] Instagram via {instance}: {len(batch)}")
+                return batch
         except Exception as e:
-            print(f"[social_media] RSSHub Instagram {instance}: {e}")
+            print(f"[social_media] Instagram RSSHub {instance}: {e}")
         break
-    return posts
+    return []
 
 
-def _fetch_reddit():
-    posts = []
-    headers = {"User-Agent": "KPKPulse/1.0 (media intelligence dashboard)"}
-    for source, url in REDDIT_FEEDS.items():
+def _nitter_fallback():
+    for instance in NITTER:
+        batch = []
         try:
-            feed = feedparser.parse(url, request_headers=headers)
-            count = 0
-            for entry in feed.entries[:15]:
-                text = f"{entry.get('title','')} {entry.get('summary','')}".lower()
-                if any(kw in text for kw in KPK_KEYWORDS):
-                    posts.append(_make_post(entry, source, "reddit"))
-                    count += 1
-            if count:
-                print(f"[social_media] Reddit {source}: {count} posts")
-        except Exception as e:
-            print(f"[social_media] Reddit {source}: {e}")
-    return posts
-
-
-def _fetch_nitter():
-    posts = []
-    for instance in NITTER_INSTANCES:
-        instance_posts = []
-        try:
-            for username, is_kpk in TWITTER_ACCOUNTS[:8]:
+            for username, is_official in TWITTER_ACCOUNTS[:8]:
                 feed = feedparser.parse(f"{instance}/{username}/rss")
                 if not feed.entries:
                     continue
-                for entry in feed.entries[:4]:
+                for entry in feed.entries[:5]:
                     text = f"{entry.get('title','')} {entry.get('summary','')}".lower()
-                    if is_kpk or any(kw in text for kw in KPK_KEYWORDS):
-                        instance_posts.append(_make_post(entry, f"@{username}", "twitter"))
-            if instance_posts:
-                print(f"[social_media] Nitter {instance}: {len(instance_posts)} posts")
-                return instance_posts
+                    if is_official or _is_kpk(text):
+                        batch.append(_post(entry, f"𝕏 @{username}", "twitter"))
+            if batch:
+                print(f"[social_media] Nitter fallback {instance}: {len(batch)}")
+                return batch
         except Exception as e:
             print(f"[social_media] Nitter {instance}: {e}")
-    return posts
+    return []
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+def _is_kpk(text):
+    """True if text is KPK-relevant and not purely another province."""
+    has_kpk = any(kw in text for kw in KPK_INCLUDE)
+    if not has_kpk:
+        return False
+    # Reject if it has another province keyword but zero KPK keywords
+    other_only = any(p in text for p in OTHER_PROVINCE) and not any(k in text for k in KPK_INCLUDE[:8])
+    return not other_only
 
-def _make_post(entry, source, platform):
+
+def _post(entry, source, platform):
     return {
-        "title": _clean(entry.get("title", ""))[:250],
+        "title":       _clean(entry.get("title", ""))[:250],
         "description": _clean(entry.get("summary", ""))[:350],
-        "url": entry.get("link", ""),
-        "source": source,
-        "published_at": _parse_date(entry.get("published", "")),
-        "image": _extract_media(entry),
-        "platform": platform,
-        "module": "social_media",
+        "url":         entry.get("link", ""),
+        "source":      source,
+        "published_at": _date(entry.get("published", "")),
+        "image":       _img(entry),
+        "platform":    platform,
+        "module":      "social_media",
     }
 
 
-def _parse_date(date_str):
-    if not date_str:
+def _date(s):
+    if not s:
         return datetime.utcnow().isoformat()
     try:
         from email.utils import parsedate_to_datetime
-        return parsedate_to_datetime(date_str).isoformat()
+        return parsedate_to_datetime(s).isoformat()
     except Exception:
         return datetime.utcnow().isoformat()
 
@@ -243,19 +223,20 @@ def _clean(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _extract_media(entry):
+def _img(entry):
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         return entry.media_thumbnail[0].get("url", "")
     if hasattr(entry, "enclosures") and entry.enclosures:
         return entry.enclosures[0].get("href", "")
-    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', entry.get("summary", ""))
-    return match.group(1) if match else ""
+    m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', entry.get("summary", ""))
+    return m.group(1) if m else ""
 
 
 def _mock_posts():
     now = datetime.utcnow().isoformat()
     return [
-        {"title": "@CMKPKOfficial: 500 new schools announced across KPK", "description": "CM KPK announced a major education initiative targeting underserved districts.", "url": "#", "source": "@CMKPKOfficial", "published_at": now, "image": "", "platform": "twitter", "module": "social_media"},
-        {"title": "@KPPolice: Suspect arrested in Peshawar operation", "description": "KPK Police conducted a successful counter-terrorism operation in Peshawar.", "url": "#", "source": "@KPPolice", "published_at": now, "image": "", "platform": "twitter", "module": "social_media"},
-        {"title": "r/pakistan: KPK flood situation update", "description": "Latest updates from PDMA KPK on rain and flood situation.", "url": "#", "source": "r/pakistan", "published_at": now, "image": "", "platform": "reddit", "module": "social_media"},
+        {"title": "𝕏 @CMKPKOfficial: CM KPK visits flood-affected areas in Nowshera", "description": "Chief Minister Khyber Pakhtunkhwa personally visited flood-affected families in Nowshera.", "url": "https://twitter.com/CMKPKOfficial", "source": "𝕏 @CMKPKOfficial", "published_at": now, "image": "", "platform": "twitter", "module": "social_media"},
+        {"title": "𝕏 @KPPolice: KPK Police arrests 12 suspects in Peshawar operation", "description": "A successful joint intelligence operation led to arrest of 12 suspects in Peshawar.", "url": "https://twitter.com/KPPolice", "source": "𝕏 @KPPolice", "published_at": now, "image": "", "platform": "twitter", "module": "social_media"},
+        {"title": "𝕏 @OfficialDGISPR: Security forces kill 8 terrorists in North Waziristan", "description": "ISPR confirms successful operation in North Waziristan. Own troops safe.", "url": "https://twitter.com/OfficialDGISPR", "source": "𝕏 @OfficialDGISPR", "published_at": now, "image": "", "platform": "twitter", "module": "social_media"},
+        {"title": "📘 @KhyberNews: Breaking — Heavy rainfall warning for Swat and Chitral", "description": "Khyber News reports PMD has issued a red alert for heavy rainfall in Swat, Dir and Chitral.", "url": "https://www.facebook.com/KhyberNews", "source": "📘 KhyberNews", "published_at": now, "image": "", "platform": "facebook", "module": "social_media"},
     ]

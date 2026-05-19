@@ -2,6 +2,13 @@ import feedparser
 import re
 from datetime import datetime
 
+# If ONLY these appear with zero KPK keywords → exclude
+OTHER_PROVINCES = [
+    "karachi", "sindh", "lahore", "punjab", "balochistan",
+    "quetta", "multan", "faisalabad", "hyderabad", "gwadar",
+    "sukkur", "larkana",
+]
+
 # English + Urdu KPK keywords for filtering
 KPK_KEYWORDS = [
     # English
@@ -67,7 +74,7 @@ def fetch_articles(max_per_feed=15):
                 count = 0
                 for entry in feed.entries[:max_per_feed]:
                     text = f"{entry.get('title', '')} {entry.get('summary', '')}".lower()
-                    if any(kw in text for kw in KPK_KEYWORDS):
+                    if _is_kpk_relevant(text):
                         articles.append(_normalize(entry, source))
                         count += 1
                 if count:
@@ -78,6 +85,17 @@ def fetch_articles(max_per_feed=15):
     articles.sort(key=lambda x: x.get("published_at", ""), reverse=True)
     print(f"[newspapers] Total: {len(articles)} articles")
     return articles if articles else _mock_articles()
+
+
+def _is_kpk_relevant(text):
+    has_kpk = any(kw in text for kw in KPK_KEYWORDS)
+    if not has_kpk:
+        return False
+    has_other_only = (
+        any(p in text for p in OTHER_PROVINCES)
+        and not any(kw in text for kw in KPK_KEYWORDS[:10])
+    )
+    return not has_other_only
 
 
 def _normalize(entry, source, lang="en"):

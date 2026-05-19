@@ -163,8 +163,9 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .btn-bookmark.bookmarked { background: var(--accent); color: #fff; }
 .btn-alert { font-size: 12px; padding: 5px 10px; border-radius: 6px; background: var(--surface2); color: var(--text-muted); transition: all .2s; }
 .btn-alert:hover { background: rgba(239,68,68,.2); color: #f87171; }
-.btn-read { font-size: 12px; padding: 5px 10px; border-radius: 6px; background: rgba(249,115,22,.1); color: var(--accent); border: 1px solid rgba(249,115,22,.2); margin-left: auto; transition: all .2s; }
+.btn-read { font-size: 12px; padding: 5px 10px; border-radius: 6px; background: rgba(249,115,22,.1); color: var(--accent); border: 1px solid rgba(249,115,22,.2); margin-left: auto; transition: all .2s; display: inline-block; }
 .btn-read:hover { background: var(--accent); color: #fff; text-decoration: none; }
+.btn-read.disabled { opacity: .35; cursor: not-allowed; pointer-events: none; color: var(--text-muted); background: var(--surface2); border-color: var(--border); }
 
 /* ── YouTube ── */
 .yt-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: transform .2s, box-shadow .2s; }
