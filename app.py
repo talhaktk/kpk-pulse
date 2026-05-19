@@ -145,6 +145,47 @@ def api_send_digest():
     return jsonify({"status": "ok" if ok else "skipped"})
 
 
+@app.route("/api/telegram/chat_ids")
+def api_telegram_chat_ids():
+    """Call this after messaging your bot to discover your chat ID."""
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token or "your_telegram" in token:
+        return jsonify({"error": "TELEGRAM_TOKEN not set"}), 400
+    try:
+        resp = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=10)
+        updates = resp.json().get("result", [])
+        chats = {}
+        for u in updates:
+            msg = u.get("message") or u.get("channel_post") or {}
+            chat = msg.get("chat", {})
+            if chat:
+                chats[chat["id"]] = {
+                    "id": chat["id"],
+                    "type": chat.get("type"),
+                    "name": chat.get("title") or chat.get("username") or chat.get("first_name", ""),
+                }
+        return jsonify({"status": "ok", "chats": list(chats.values())})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/telegram/test", methods=["POST"])
+def api_telegram_test():
+    """Send a test message to all configured chat IDs."""
+    from modules.telegram_alert import send_breaking_news
+    ok = send_breaking_news("KPK Pulse Test", "Your Telegram alerts are working correctly!", "")
+    return jsonify({"status": "ok" if ok else "failed — check TELEGRAM_CHAT_IDS in .env"})
+
+
+@app.route("/api/email/test", methods=["POST"])
+def api_email_test():
+    """Send a test digest to all configured email recipients."""
+    articles = _get_news() + _get_newspapers()
+    from modules.email_digest import send_morning_digest
+    ok = send_morning_digest(articles[:5])
+    return jsonify({"status": "ok" if ok else "failed — check EMAIL_* vars in .env"})
+
+
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     keys = request.get_json(force=True).get("modules", list(_cache.keys()))

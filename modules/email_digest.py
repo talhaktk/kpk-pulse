@@ -11,25 +11,43 @@ EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
-def send_morning_digest(articles, recipient=None):
-    recipient = recipient or EMAIL_ADDRESS
+def _get_recipients():
+    """Read all recipient emails from EMAIL_RECIPIENTS (comma-separated)."""
+    raw = os.getenv("EMAIL_RECIPIENTS", EMAIL_ADDRESS or "")
+    return [e.strip() for e in raw.split(",") if e.strip()]
+
+
+def send_morning_digest(articles):
     subject = f"KPK Pulse Morning Digest — {datetime.now().strftime('%B %d, %Y')}"
     html = _build_html(articles, "Morning Digest", "☀️")
-    return _send_email(recipient, subject, html)
+    return _broadcast(subject, html)
 
 
-def send_evening_summary(articles, recipient=None):
-    recipient = recipient or EMAIL_ADDRESS
+def send_evening_summary(articles):
     subject = f"KPK Pulse Evening Summary — {datetime.now().strftime('%B %d, %Y')}"
     html = _build_html(articles, "Evening Summary", "🌙")
-    return _send_email(recipient, subject, html)
+    return _broadcast(subject, html)
 
 
-def _send_email(recipient, subject, html_body):
-    if not EMAIL_ADDRESS or EMAIL_ADDRESS == "your_gmail@gmail.com":
-        print(f"[email_digest] Mock email to {recipient}: {subject}")
+def send_to_specific(recipient, subject, html_body):
+    """Send to a single specific address."""
+    return _send_one(recipient, subject, html_body)
+
+
+def _broadcast(subject, html_body):
+    """Send to all configured recipients."""
+    if not EMAIL_ADDRESS or "your_gmail" in (EMAIL_ADDRESS or ""):
+        print(f"[email_digest] Mock email — configure EMAIL_ADDRESS in .env")
         return False
+    recipients = _get_recipients()
+    if not recipients:
+        print("[email_digest] No EMAIL_RECIPIENTS configured.")
+        return False
+    results = [_send_one(r, subject, html_body) for r in recipients]
+    return any(results)
 
+
+def _send_one(recipient, subject, html_body):
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -40,10 +58,10 @@ def _send_email(recipient, subject, html_body):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.sendmail(EMAIL_ADDRESS, recipient, msg.as_string())
-        print(f"[email_digest] Sent: {subject}")
+        print(f"[email_digest] Sent to {recipient}: {subject}")
         return True
     except Exception as e:
-        print(f"[email_digest] Error: {e}")
+        print(f"[email_digest] Error sending to {recipient}: {e}")
         return False
 
 
@@ -83,8 +101,7 @@ def _build_html(articles, digest_type, icon):
           {items_html}
         </div>
         <p style="color:#6b7280;font-size:12px;text-align:center;">
-          KPK Pulse — Real-Time KPK Media Intelligence<br>
-          Unsubscribe | Manage Preferences
+          KPK Pulse — Real-Time KPK Media Intelligence
         </p>
       </div>
     </body>
