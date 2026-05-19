@@ -1,8 +1,7 @@
 import os
-import json
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, jsonify, render_template, request
 from dotenv import load_dotenv
@@ -12,10 +11,47 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "kpk-pulse-dev-key")
 
-# In-memory cache so we don't hammer APIs on every request
 _cache = {}
 _cache_lock = threading.Lock()
 CACHE_TTL = 900  # 15 minutes
+
+MAX_AGE_HOURS = 24  # Reject any article older than 24 hours
+
+
+def _clean_articles(articles):
+    """
+    Global post-processing applied to every article before it reaches the API:
+    1. Must have a valid http/https URL
+    2. Must be within MAX_AGE_HOURS (48h) — if date missing, keep it
+    3. Strips any remaining HTML from title/description
+    """
+    import re
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
+    result = []
+    for a in articles:
+        # --- URL check ---
+        url = a.get("url", "")
+        if not url or not url.startswith("http"):
+            continue  # skip articles with no real link
+
+        # --- Age check ---
+        pub = a.get("published_at", "")
+        if pub:
+            try:
+                dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                if dt < cutoff:
+                    continue  # too old
+            except Exception:
+                pass  # unparseable date → keep the article
+
+        # --- Strip HTML from title and description ---
+        a["title"] = re.sub(r"<[^>]+>", " ", a.get("title", "")).strip()
+        a["description"] = re.sub(r"<[^>]+>", " ", a.get("description", "")).strip()
+
+        result.append(a)
+    return result
 
 
 def cached(key, ttl=CACHE_TTL):
@@ -34,40 +70,57 @@ def cached(key, ttl=CACHE_TTL):
     return decorator
 
 
+def _safe(fn):
+    """Wrap a data-fetch function so any exception returns [] instead of crashing."""
+    try:
+        return fn()
+    except Exception as e:
+        print(f"[app] _safe caught: {e}")
+        return []
+
+
 @cached("news", 900)
 def _get_news():
     from modules.google_news import fetch_news
-    return fetch_news()
+    return _safe(fetch_news)
 
 
 @cached("trends", 1800)
 def _get_trends():
     from modules.google_trends import fetch_trends
-    return fetch_trends()
+    return _safe(fetch_trends)
 
 
 @cached("youtube", 900)
 def _get_youtube():
     from modules.youtube import fetch_videos
-    return fetch_videos()
+    return _safe(fetch_videos)
 
 
 @cached("govt", 900)
 def _get_govt():
     from modules.kpk_govt import fetch_govt_news
-    return fetch_govt_news()
+    return _safe(fetch_govt_news)
 
 
 @cached("newspapers", 900)
 def _get_newspapers():
     from modules.newspapers import fetch_articles
-    return fetch_articles()
+    return _safe(fetch_articles)
 
 
 @cached("social", 600)
 def _get_social():
     from modules.social_media import fetch_social_posts
-    return fetch_social_posts()
+    return _safe(fetch_social_posts)
+
+
+# ── Global error handlers ─────────────────────────────────────────────────────
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    print(f"[app] Unhandled exception: {e}")
+    return jsonify({"status": "error", "message": str(e), "data": []}), 500
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -82,9 +135,9 @@ def api_news():
     keyword = request.args.get("q", "")
     if keyword:
         from modules.google_news import fetch_news
-        data = fetch_news(keyword=keyword)
+        data = _clean_articles(fetch_news(keyword=keyword))
     else:
-        data = _get_news()
+        data = _clean_articles(_get_news())
     return jsonify({"status": "ok", "data": data, "count": len(data)})
 
 
@@ -100,32 +153,35 @@ def api_youtube():
 
 @app.route("/api/newspapers")
 def api_newspapers():
-    return jsonify({"status": "ok", "data": _get_newspapers()})
+    data = _clean_articles(_get_newspapers())
+    return jsonify({"status": "ok", "data": data, "count": len(data)})
 
 
 @app.route("/api/social")
 def api_social():
-    return jsonify({"status": "ok", "data": _get_social()})
+    data = _clean_articles(_get_social())
+    return jsonify({"status": "ok", "data": data, "count": len(data)})
 
 
 @app.route("/api/govt")
 def api_govt():
-    return jsonify({"status": "ok", "data": _get_govt()})
+    data = _clean_articles(_get_govt())
+    return jsonify({"status": "ok", "data": data, "count": len(data)})
 
 
 @app.route("/api/all")
 def api_all():
-    news = _get_news()
-    newspapers = _get_newspapers()
-    social = _get_social()
-    govt = _get_govt()
-    combined = news + newspapers + social + govt
+    combined = (
+        _clean_articles(_get_news()) +
+        _clean_articles(_get_newspapers()) +
+        _clean_articles(_get_social()) +
+        _clean_articles(_get_govt())
+    )
     combined.sort(key=lambda x: x.get("published_at", ""), reverse=True)
-    # Deduplicate by title
     seen, unique = set(), []
     for a in combined:
         key = (a.get("title", "")[:60]).lower()
-        if key not in seen:
+        if key and key not in seen:
             seen.add(key); unique.append(a)
     return jsonify({"status": "ok", "data": unique, "count": len(unique)})
 
@@ -160,6 +216,14 @@ def api_send_digest():
     else:
         ok = send_morning_digest(articles)
     return jsonify({"status": "ok" if ok else "skipped"})
+
+
+@app.route("/api/telegram/debug")
+def api_telegram_debug():
+    """Shows exactly what's configured — open in browser to diagnose."""
+    from modules.telegram_alert import get_debug_info
+    info = get_debug_info()
+    return jsonify(info)
 
 
 @app.route("/api/telegram/chat_ids")

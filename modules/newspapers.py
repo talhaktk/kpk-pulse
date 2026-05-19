@@ -99,12 +99,23 @@ def _is_kpk_relevant(text):
 
 
 def _normalize(entry, source, lang="en"):
-    published = entry.get("published", "")
-    try:
-        from email.utils import parsedate_to_datetime
-        published = parsedate_to_datetime(published).isoformat()
-    except Exception:
-        published = datetime.utcnow().isoformat()
+    # Use feedparser's pre-parsed time struct — most reliable
+    published = ""
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        try:
+            import calendar
+            ts = calendar.timegm(entry.published_parsed)
+            published = datetime.utcfromtimestamp(ts).replace(
+                tzinfo=__import__("datetime").timezone.utc
+            ).isoformat()
+        except Exception:
+            pass
+    if not published:
+        try:
+            from email.utils import parsedate_to_datetime
+            published = parsedate_to_datetime(entry.get("published", "")).isoformat()
+        except Exception:
+            published = datetime.utcnow().isoformat()
 
     return {
         "title": _clean(entry.get("title", "")),

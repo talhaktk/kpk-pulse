@@ -1,72 +1,68 @@
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_KEY = os.getenv("NEWS_API_KEY")
-KPK_KEYWORDS = ["KPK", "Khyber Pakhtunkhwa", "Peshawar", "Nowshera", "Mardan", "Swat", "Abbottabad"]
 BASE_URL = "https://newsapi.org/v2/everything"
 
+KPK_QUERY = (
+    "KPK OR \"Khyber Pakhtunkhwa\" OR Peshawar OR Nowshera OR Mardan "
+    "OR Swat OR Abbottabad OR \"North Waziristan\" OR \"South Waziristan\" "
+    "OR PDMA OR \"KPK police\" OR ISPR OR \"CM KPK\""
+)
 
-def fetch_news(keyword=None, page_size=20):
+OTHER_PROVINCES = ["karachi", "sindh", "lahore", "punjab", "balochistan", "quetta"]
+
+
+def fetch_news(keyword=None, page_size=30):
     if not API_KEY or API_KEY == "your_newsapi_key_here":
-        return _mock_news()
+        return []   # return empty — no fake data
 
-    query = keyword if keyword else " OR ".join(KPK_KEYWORDS)
+    query = keyword if keyword else KPK_QUERY
     params = {
         "q": query,
-        "language": "en",
         "sortBy": "publishedAt",
         "pageSize": page_size,
         "apiKey": API_KEY,
-        "from": (datetime.utcnow() - timedelta(hours=24)).isoformat(),
+        # Strictly last 24 hours only
+        "from": (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     try:
         resp = requests.get(BASE_URL, params=params, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-        articles = data.get("articles", [])
-        return _normalize(articles)
+        articles = resp.json().get("articles", [])
+        result = _normalize(articles)
+        print(f"[google_news] {len(result)} articles (last 24h)")
+        return result
     except Exception as e:
         print(f"[google_news] Error: {e}")
-        return _mock_news()
+        return []
 
 
 def _normalize(articles):
     results = []
     for a in articles:
+        url = a.get("url", "")
+        title = (a.get("title") or "").strip()
+        # Skip removed/deleted articles and those without URLs
+        if not url or not url.startswith("http"):
+            continue
+        if title in ("[Removed]", "", "None"):
+            continue
+        # Skip non-KPK stories that only mention other provinces
+        text = f"{title} {a.get('description','') or ''}".lower()
+        if any(p in text for p in OTHER_PROVINCES) and "kpk" not in text and "khyber" not in text and "peshawar" not in text:
+            continue
         results.append({
-            "title": a.get("title", ""),
-            "description": a.get("description", ""),
-            "url": a.get("url", ""),
-            "source": a.get("source", {}).get("name", "NewsAPI"),
+            "title":        title,
+            "description":  (a.get("description") or "").strip(),
+            "url":          url,
+            "source":       a.get("source", {}).get("name", "NewsAPI"),
             "published_at": a.get("publishedAt", ""),
-            "image": a.get("urlToImage", ""),
-            "module": "google_news",
+            "image":        a.get("urlToImage", "") or "",
+            "module":       "google_news",
         })
     return results
-
-
-def _mock_news():
-    return [
-        {
-            "title": "KPK Government Announces New Development Projects",
-            "description": "The provincial government of Khyber Pakhtunkhwa has announced several new development initiatives.",
-            "url": "#",
-            "source": "Demo Source",
-            "published_at": datetime.utcnow().isoformat(),
-            "image": "",
-            "module": "google_news",
-        },
-        {
-            "title": "Peshawar BRT Extension Plan Revealed",
-            "description": "Officials confirmed plans to extend the Bus Rapid Transit network across Peshawar.",
-            "url": "#",
-            "source": "Demo Source",
-            "published_at": datetime.utcnow().isoformat(),
-            "image": "",
-            "module": "google_news",
-        },
-    ]
